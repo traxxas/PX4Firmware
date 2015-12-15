@@ -76,6 +76,10 @@
 #define REG_TO_FLOAT(_reg)	((float)REG_TO_SIGNED(_reg) / 10000.0f)
 #define FLOAT_TO_REG(_float)	SIGNED_TO_REG((int16_t)((_float) * 10000.0f))
 
+#define FLOAT_TO_REG_P(_float, _p)  SIGNED_TO_REG((int16_t)((_float) * _p))
+#define REG_TO_FLOAT_P(_reg, _p)    ((float)REG_TO_SIGNED(_reg) / _p)
+
+
 #define PX4IO_PROTOCOL_VERSION		4
 
 /* maximum allowable sizes on this protocol version */
@@ -93,6 +97,8 @@
 #define PX4IO_P_CONFIG_ADC_INPUT_COUNT		7	/* hardcoded max ADC inputs */
 #define PX4IO_P_CONFIG_RELAY_COUNT		8	/* hardcoded # of relay outputs */
 #define PX4IO_P_CONFIG_CONTROL_GROUP_COUNT	8	/**< hardcoded # of control groups*/
+#define PX4IO_P_CONFIG_IO_FIRMWARE_VERSION      9	/* px4io's firmware version */
+#define PX4IO_P_CONFIG_ESC_FIRMWARE_VERSION    10	/* ESC's firmware version */
 
 /* dynamic status page */
 #define PX4IO_PAGE_STATUS		1
@@ -273,6 +279,86 @@ enum {							/* DSM bind states */
 /* PWM failsafe values - zero disables the output */
 #define PX4IO_PAGE_SENSORS			56		/**< Sensors connected to PX4IO */
 #define PX4IO_P_SENSORS_ALTITUDE		0		/**< Altitude of an external sensor (HoTT or S.BUS2) */
+
+/* EKF-filtered NAV data for third-party flight controllers */
+#define PX4IO_PAGE_EKF	                        57		 /**< EKF data */
+
+/* Control input from user sent to Autopilot */
+#define PX4IO_PAGE_CONTROL_INPUT		58
+#define PX4IO_P_CONTROL_INPUT_REQ		0	  /**< Master safety state */
+#define PX4IO_P_CONTROL_INPUT_REQ_NONE	        0         /**< No  Request */
+#define PX4IO_P_CONTROL_INPUT_REQ_DISARM	1         /**< Disarm Request */
+#define PX4IO_P_CONTROL_INPUT_REQ_ARM		2         /**< Arm Request */
+#define PX4IO_P_CONTROL_INPUT_REQ_SETHOME	3         /**< Set Home Waypoint Request */
+#define PX4IO_P_CONTROL_INPUT_REQ_LOST_ON	4         /**< Sound lost vehicle alarm */
+#define PX4IO_P_CONTROL_INPUT_REQ_LOST_OFF	5         /**< Silence lost vehicle alarm  */
+#define PX4IO_P_CONTROL_INPUT_REQ_ACC_RESET	6         /**< Accelerometer level reset */
+#define PX4IO_P_CONTROL_INPUT_RSP		1         /**< Response code for last INPUT_REQ */
+#define PX4IO_P_CONTROL_INPUT_MODE_SELECT	2	  /**< Autopilot mode selection */
+
+/* Autopilot controls sent to embedded flight controller */
+#define PX4IO_PAGE_CONTROL_OUTPUT		59
+#define PX4IO_P_CONTROL_OUTPUT_THROTTLE		0	/**< Throttle output [0..1000] */
+#define PX4IO_P_CONTROL_OUTPUT_PITCH		1	/**< Target pitch angle (centi-radians) */
+#define PX4IO_P_CONTROL_OUTPUT_ROLL		2	/**< Target roll angle (centi-radians) */
+#define PX4IO_P_CONTROL_OUTPUT_YAW		3	/**< Target yaw angle (centi-radians) */
+#define PX4IO_P_CONTROL_OUTPUT_ARMED		4	/**< Armed state */
+#define PX4IO_P_CONTROL_OUTPUT_FLIGHT_MODE	5	/**< Flight mode */
+#define PX4IO_P_CONTROL_OUTPUT_GPS		6	/**< GPS information */
+#define PX4IO_P_CONTROL_OUTPUT_MAG		7	/**< Magnetometer information */
+#define PX4IO_P_CONTROL_OUTPUT_AHRS		8	/**< AHRS/EKF state info */
+#define PX4IO_P_CONTROL_OUTPUT_GYRO		9	/**< Gyro state info */
+#define PX4IO_P_CONTROL_OUTPUT_ACCEL		10	/**< Accel state info */
+#define PX4IO_P_CONTROL_OUTPUT_HOME_INFO	11	/**< Home position info mask */
+#define PX4IO_P_CONTROL_OUTPUT_HOME_SET	        (1 << 0)  /**< Home position has been set */
+#define PX4IO_P_CONTROL_OUTPUT_HOME_FAR	        (1 << 1)  /**< Home position too far from current */
+#define PX4IO_P_CONTROL_OUTPUT_TEMPERATURE	12	/**< Temperature from sensors */
+#define PX4IO_P_CONTROL_OUTPUT_FMU_BOOT_STATE	13	/**< Nonzero if in the boot loader.  This should not be here.  :(  */
+#define PX4IO_P_CONTROL_OUTPUT_FENCE_BREACH	14	/**< Nonzero if a fence is currently breached */
+
+/* FCU Parameter page and values */
+#define PX4IO_PAGE_FCU_PARAM		   60
+#define PX4IO_P_FCU_PARAM_ATT_ROLL_P       0    /*!< Proportional term of the Roll Attitude PID (type:float 1 decimal place) */
+#define PX4IO_P_FCU_PARAM_ATT_ROLL_I       1    /*!< Integral term of the Roll Attitude PID (type:float 1 decimal place) */
+#define PX4IO_P_FCU_PARAM_ATT_ROLL_D       2    /*!< Derivative term of the Roll Attitude PID (type:float 1 decimal place) */
+#define PX4IO_P_FCU_PARAM_ATT_PITCH_P      3    /*!< Proportional term of the Pitch Attitude PID (type:float 1 decimal place) */
+#define PX4IO_P_FCU_PARAM_ATT_PITCH_I      4    /*!< Integral term of the Pitch Attitude PID (type:float 1 decimal place) */
+#define PX4IO_P_FCU_PARAM_ATT_PITCH_D      5    /*!< Derivative term of the Pitch Attitude PID (type:float 1 decimal place) */
+#define PX4IO_P_FCU_PARAM_ATT_YAW_P        6    /*!< Proportional term of the Yaw Attitude PID (type:float 1 decimal place) */
+#define PX4IO_P_FCU_PARAM_ATT_YAW_I        7    /*!< Integral term of the Yaw Attitude PID (type:float 1 decimal place) */
+#define PX4IO_P_FCU_PARAM_ATT_YAW_D        8    /*!< Derivative term of the Yaw Rate PID (type:float 1 decimal place) */
+#define PX4IO_P_FCU_PARAM_RATE_ROLL_P      9    /*!< Proportional term of the Roll Rate PID (type:float 1 decimal place) */
+#define PX4IO_P_FCU_PARAM_RATE_ROLL_I      10   /*!< Integral term of the Roll Rate PID (type:float 1 decimal place) */
+#define PX4IO_P_FCU_PARAM_RATE_ROLL_D      11   /*!< Derivative term of the Roll Rate PID (type:float 1 decimal place) */
+#define PX4IO_P_FCU_PARAM_RATE_PITCH_P     12   /*!< Proportional term of the Pitch Rate PID (type:float 1 decimal place) */
+#define PX4IO_P_FCU_PARAM_RATE_PITCH_I     13   /*!< Integral term of the Pitch Rate PID (type:float 1 decimal place) */
+#define PX4IO_P_FCU_PARAM_RATE_PITCH_D     14   /*!< Derivative term of the Pitch Rate PID (type:float 1 decimal place) */
+#define PX4IO_P_FCU_PARAM_RATE_YAW_P       15   /*!< Proportional term of the Yaw Rate PID (type:float 1 decimal place) */
+#define PX4IO_P_FCU_PARAM_RATE_YAW_I       16   /*!< Integral term of the Yaw Rate PID (type:float 1 decimal place) */
+#define PX4IO_P_FCU_PARAM_RATE_YAW_D       17   /*!< Derivatie term of the Yaw Rate PID (type:float 1 decimal place) */
+#define PX4IO_P_FCU_PARAM_TX_EXPO_ROLL     18   /*!< Transmitter Expo Setting (type: unsigned integer) */
+#define PX4IO_P_FCU_PARAM_TX_EXPO_PITCH    19   /*!< Transmitter Expo Setting (type: unsigned integer) */
+#define PX4IO_P_FCU_PARAM_TX_EXPO_YAW      20   /*!< Transmitter Expo Setting (type: unsigned integer) */
+#define PX4IO_P_FCU_PARAM_TX_BEEP_OVERRIDE 21   /*!< Disable Transmitter Beeps during Altitude Hold/Loiter (type:boolean) */
+
+
+/* FMU backup page and values */
+#define PX4IO_PAGE_FMU_BACKUP		   61
+#define PX4IO_P_FMU_BACKUP_MAG_X            0   /*!< Magnetometer X offset backup (type: int16) */
+#define PX4IO_P_FMU_BACKUP_MAG_Y            1   /*!< Magnetometer Y offset backup (type: int16) */
+#define PX4IO_P_FMU_BACKUP_MAG_Z            2   /*!< Magnetometer Z offset backup (type: int16) */
+#define PX4IO_P_FMU_BACKUP_TRIM_X           3   /*!< Trim level X offset (type: float*1000) */
+#define PX4IO_P_FMU_BACKUP_TRIM_Y           4   /*!< Trim level Y offset (type: float*1000) */
+#define PX4IO_P_FMU_BACKUP_ACCOFS_X         5   /*!< Accelerometer X offset (type: float*1000) */
+#define PX4IO_P_FMU_BACKUP_ACCOFS_Y         6   /*!< Accelerometer Y offset (type: float*1000) */
+#define PX4IO_P_FMU_BACKUP_ACCOFS_Z         7   /*!< Accelerometer Z offset (type: float*1000) */
+#define PX4IO_P_FMU_BACKUP_ACCSCAL_X        8   /*!< Accelerometer X scale (type: float*1000) */
+#define PX4IO_P_FMU_BACKUP_ACCSCAL_Y        9   /*!< Accelerometer Y scale (type: float*1000) */
+#define PX4IO_P_FMU_BACKUP_ACCSCAL_Z        10   /*!< Accelerometer Z scale (type: float*1000) */
+
+/* FCU log page */
+#define PX4IO_PAGE_FCU_LOG		    62
+
 
 /* Debug and test page - not used in normal operation */
 #define PX4IO_PAGE_TEST				127
