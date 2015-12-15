@@ -1,0 +1,14 @@
+uint16  target_throttle
+int16   target_pitch
+int16   target_roll
+uint16  target_yaw
+int16   is_armed
+int16   flight_mode
+uint16  gps_state
+uint16  mag_state
+uint16  ahrs_state
+uint16  gyro_state
+uint16  accel_state
+uint16  home_info
+int16   temperature
+uint16  fence_breach

@@ -57,13 +57,15 @@ ifneq ($(words $(GIT_DESC)),1)
 endif
 
 GIT_DESC_SHORT := $(shell echo $(GIT_DESC) | cut -c1-16)
+TRX_VERSION := $(shell cat $(PX4_BASE)trx_version.txt)
+
 
 $(shell mkdir -p $(BUILD_DIR))
 $(shell rm -f $(BUILD_DIR)git_version.*)
 $(shell echo "#include <systemlib/git_version.h>" > $(BUILD_DIR)git_version.c)
 $(shell echo "const char* px4_git_version = \"$(GIT_DESC)\";" >> $(BUILD_DIR)git_version.c)
 $(shell echo "const uint64_t px4_git_version_binary = 0x$(GIT_DESC_SHORT);" >> $(BUILD_DIR)git_version.c)
-
+$(shell echo "const char* trx_version = \"$(TRX_VERSION)\";" >> $(BUILD_DIR)git_version.c)
 #
 # Canned firmware configurations that we (know how to) build.
 #

@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- *   Copyright (c) 2015 PX4 Development Team. All rights reserved.
+ *   Copyright (C) 2015 PX4 Development Team. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,18 +32,53 @@
  ****************************************************************************/
 
 /**
- * @file git_version.h
+ * @file drv_tpfc.h
  *
- * GIT repository version
+ * Third-party flight controller driver interfaces to communicate 
+ * filtered inertial navigation data to flight control thru the PX4IO
+ * serial channel.
+ *
  */
 
-#pragma once
+#ifndef _DRV_TPFC_H
+#define _DRV_TPFC_H
 
 #include <stdint.h>
+#include <sys/ioctl.h>
 
-__BEGIN_DECLS
 
-__EXPORT extern const char* px4_git_version;
-__EXPORT extern const uint64_t px4_git_version_binary;
-__EXPORT extern const char* trx_version;
-__END_DECLS
+/*
+ * ioctl() definitions
+ */
+#define _TPFC_IOC_BASE		(0x2f00)
+#define _TPFC_IOC(_n)		(_IOC(_TPFC_IOC_BASE, _n))
+
+#define TPFC_IOC_EKF_SET		_TPFC_IOC(0)
+#define TPFC_IOC_SP_SET	        	_TPFC_IOC(1)
+#define TPFC_IOC_MODE_GET		_TPFC_IOC(2)
+#define TPFC_IOC_INPUT_REQ_GET		_TPFC_IOC(3)
+#define TPFC_IOC_FC_FW_VERSION_GET  	_TPFC_IOC(4)
+#define TPFC_IOC_ESC_FW_VERSION_GET 	_TPFC_IOC(5)
+#define TPFC_IOC_MAG_OFFSETS_GET 	_TPFC_IOC(6)
+#define TPFC_IOC_MAG_OFFSETS_SET 	_TPFC_IOC(7)
+#define TPFC_IOC_ACCEL_OFFSETS_GET 	_TPFC_IOC(8)
+#define TPFC_IOC_ACCEL_OFFSETS_SET 	_TPFC_IOC(9)
+#define TPFC_IOC_ACCEL_SCALE_GET 	_TPFC_IOC(10)
+#define TPFC_IOC_ACCEL_SCALE_SET 	_TPFC_IOC(11)
+#define TPFC_IOC_TRIM_OFFSETS_GET 	_TPFC_IOC(12)
+#define TPFC_IOC_TRIM_OFFSETS_SET 	_TPFC_IOC(13)
+#define TPFC_IOC_FCU_LOG_GET 		_TPFC_IOC(14)
+
+typedef struct {
+  float x;
+  float y;
+  float z;
+} TpfcFloatVector;
+
+
+//#ifdef CONFIG_ARCH_BOARD_PX4FMU_V2
+# define PX4IO_DEVICE_PATH	"/dev/px4io"
+//#endif
+
+#endif /* _DRV_TPFC_H */
+

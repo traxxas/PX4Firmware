@@ -248,6 +248,15 @@ ORB_DEFINE(wind_estimate, struct wind_estimate_s);
 #include "topics/rc_parameter_map.h"
 ORB_DEFINE(rc_parameter_map, struct rc_parameter_map_s);
 
+#include "topics/tpfc_sensors.h"
+ORB_DEFINE(tpfc_sensors, struct tpfc_sensors_s);
+
+#include "topics/tpfc_autopilot.h"
+ORB_DEFINE(tpfc_autopilot, struct tpfc_autopilot_s);
+
+#include "topics/tpfc_input_cmd_rsp.h"
+ORB_DEFINE(tpfc_input_cmd_rsp, struct tpfc_input_cmd_rsp_s);
+
 #include "topics/time_offset.h"
 ORB_DEFINE(time_offset, struct time_offset_s);
 

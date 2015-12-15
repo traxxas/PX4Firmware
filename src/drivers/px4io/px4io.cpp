@@ -65,6 +65,7 @@
 #include <drivers/drv_gpio.h>
 #include <drivers/drv_hrt.h>
 #include <drivers/drv_mixer.h>
+#include <drivers/drv_tpfc.h>
 
 #include <systemlib/mixer/mixer.h>
 #include <systemlib/perf_counter.h>
@@ -89,7 +90,9 @@
 #include <uORB/topics/servorail_status.h>
 #include <uORB/topics/parameter_update.h>
 #include <uORB/topics/multirotor_motor_limits.h>
-
+#include <uORB/topics/tpfc_sensors.h>
+#include <uORB/topics/tpfc_autopilot.h>
+#include <uORB/topics/tpfc_input_cmd_rsp.h>
 #include <debug.h>
 
 #include <mavlink/mavlink_log.h>
@@ -108,8 +111,11 @@ extern device::Device *PX4IO_serial_interface() weak_function;
 #define PX4IO_CHECK_CRC			_IOC(0xff00, 3)
 
 #define UPDATE_INTERVAL_MIN		2			// 2 ms	-> 500 Hz
+
+#define CTRL_INPUT_CHECK_INTERVAL       50000           // 50 ms -> 20 Hz
 #define ORB_CHECK_INTERVAL		200000		// 200 ms -> 5 Hz
 #define IO_POLL_INTERVAL		20000		// 20 ms -> 50 Hz
+
 
 /**
  * The PX4IO class.
@@ -282,7 +288,10 @@ private:
 	int 			_t_vehicle_control_mode;///< vehicle control mode topic
 	int			_t_param;		///< parameter update topic
 	bool			_param_update_force;	///< force a parameter update
-	int			_t_vehicle_command;	///< vehicle command topic
+	int			_t_tpfc_sensors;	///< tpfc sensor data
+	int			_t_tpfc_autopilot;	///< tpfc autopilot data
+	int			_t_tpfc_input_cmd_rsp;	///< tpfc input command response
+  	int			_t_vehicle_command;	///< vehicle command topic
 
 	/* advertised topics */
 	orb_advert_t 		_to_input_rc;		///< rc inputs from io
@@ -308,6 +317,8 @@ private:
 	int32_t			_rssi_pwm_chan; ///< RSSI PWM input channel
 	int32_t			_rssi_pwm_max; ///< max RSSI input on PWM channel
 	int32_t			_rssi_pwm_min; ///< min RSSI input on PWM channel
+        uint32_t                _flight_mode; ///< flight mode requested by I/O
+        uint32_t                _ctrl_cmd;    ///< command requested by I/O
 
 #ifdef CONFIG_ARCH_BOARD_PX4FMU_V1
 	bool			_dsm_vcc_ctl;		///< true if relay 1 controls DSM satellite RX power
@@ -342,6 +353,22 @@ private:
 	 * Push RC channel configuration to IO.
 	 */
 	int			io_set_rc_config();
+
+	/**
+	 * Push sensor data to TPFC.
+	 */
+        int                     io_set_tpfc_sensor_data(tpfc_sensors_s* tpfc_data);
+
+        /**
+	 * Push autopilot data to TPFC.
+	 */
+        int                     io_set_tpfc_autopilot_data(tpfc_autopilot_s* tpfc_data);
+
+          /**
+	 * Command response to TPFC.
+	 */
+         int                     io_set_tpfc_input_cmd_rsp(tpfc_input_cmd_rsp_s* rsp);
+
 
 	/**
 	 * Fetch status and alarms from IO
@@ -516,6 +543,9 @@ PX4IO::PX4IO(device::Device *interface) :
 	_t_vehicle_control_mode(-1),
 	_t_param(-1),
 	_param_update_force(false),
+	_t_tpfc_sensors(-1),
+	_t_tpfc_autopilot(-1),
+	_t_tpfc_input_cmd_rsp(-1),
 	_t_vehicle_command(-1),
 	_to_input_rc(nullptr),
 	_to_outputs(nullptr),
@@ -535,7 +565,9 @@ PX4IO::PX4IO(device::Device *interface) :
 	_in_esc_calibration_mode(false),
 	_rssi_pwm_chan(0),
 	_rssi_pwm_max(0),
-	_rssi_pwm_min(0)
+	_rssi_pwm_min(0),
+	_flight_mode(0),
+        _ctrl_cmd(PX4IO_P_CONTROL_INPUT_REQ_NONE)
 #ifdef CONFIG_ARCH_BOARD_PX4FMU_V1
 	, _dsm_vcc_ctl(false)
 #endif
@@ -884,6 +916,7 @@ PX4IO::task_main()
 {
 	hrt_abstime poll_last = 0;
 	hrt_abstime orb_check_last = 0;
+	hrt_abstime ctrl_input_check_last = 0;
 
 	_mavlink_fd = ::open(MAVLINK_LOG_DEVICE, 0);
 
@@ -902,12 +935,18 @@ PX4IO::task_main()
 	_t_actuator_armed = orb_subscribe(ORB_ID(actuator_armed));
 	_t_vehicle_control_mode = orb_subscribe(ORB_ID(vehicle_control_mode));
 	_t_param = orb_subscribe(ORB_ID(parameter_update));
+	_t_tpfc_sensors = orb_subscribe(ORB_ID(tpfc_sensors));
+	_t_tpfc_autopilot = orb_subscribe(ORB_ID(tpfc_autopilot));
+	_t_tpfc_input_cmd_rsp = orb_subscribe(ORB_ID(tpfc_input_cmd_rsp));
 	_t_vehicle_command = orb_subscribe(ORB_ID(vehicle_command));
 
 	if ((_t_actuator_controls_0 < 0) ||
 	    (_t_actuator_armed < 0) ||
 	    (_t_vehicle_control_mode < 0) ||
 	    (_t_param < 0) ||
+	    (_t_tpfc_sensors < 0) ||
+	    (_t_tpfc_autopilot < 0) ||
+	    (_t_tpfc_input_cmd_rsp < 0) ||
 	    (_t_vehicle_command < 0)) {
 		warnx("subscription(s) failed");
 		goto out;
@@ -917,9 +956,16 @@ PX4IO::task_main()
 	_cb_flighttermination = circuit_breaker_enabled("CBRK_FLIGHTTERM", CBRK_FLIGHTTERM_KEY);
 
 	/* poll descriptor */
-	pollfd fds[1];
+	
+	pollfd fds[4];
 	fds[0].fd = _t_actuator_controls_0;
 	fds[0].events = POLLIN;
+	fds[1].fd = _t_tpfc_sensors;
+	fds[1].events = POLLIN;
+	fds[2].fd = _t_tpfc_autopilot;
+	fds[2].events = POLLIN;
+	fds[3].fd = _t_tpfc_input_cmd_rsp;
+	fds[3].events = POLLIN;
 
 	_param_update_force = true;
 
@@ -944,10 +990,10 @@ PX4IO::task_main()
 			 */
 			_update_interval = 0;
 		}
-
+		
 		/* sleep waiting for topic updates, but no more than 20ms */
 		unlock();
-		int ret = ::poll(fds, 1, 20);
+		int ret = ::poll(fds, 4, 20);
 		lock();
 
 		/* this would be bad... */
@@ -958,13 +1004,63 @@ PX4IO::task_main()
 
 		perf_begin(_perf_update);
 		hrt_abstime now = hrt_absolute_time();
-
+		
 		/* if we have new control data from the ORB, handle it */
 		if (fds[0].revents & POLLIN) {
 
 			/* we're not nice to the lower-priority control groups and only check them
 			   when the primary group updated (which is now). */
 			(void)io_set_control_groups();
+		}
+
+		if (fds[1].revents & POLLIN) {
+  
+		  /* Sensor data bound for flight control */
+		  bool updated = false;
+
+		  orb_check(_t_tpfc_sensors, &updated);
+
+		  if (updated) {
+		    tpfc_sensors_s sensor_data;
+		    orb_copy(ORB_ID(tpfc_sensors), _t_tpfc_sensors, &sensor_data);
+
+		    // TODO: check and count errors?
+		    io_set_tpfc_sensor_data(&sensor_data);
+		  }
+		}
+
+		if (fds[2].revents & POLLIN) {
+  
+		  /* Autopilot data bound for flight control */
+		  bool updated = false;
+
+		  orb_check(_t_tpfc_autopilot, &updated);
+
+		  if (updated) {
+		    tpfc_autopilot_s ap_data;
+		    orb_copy(ORB_ID(tpfc_autopilot), _t_tpfc_autopilot, &ap_data);
+
+		    // TODO: check and count errors?
+		    io_set_tpfc_autopilot_data(&ap_data);
+		  }
+		}
+
+		if (fds[3].revents & POLLIN) {
+  
+		  /* Response for command issued by flight control. */
+		  bool updated = false;
+
+		  orb_check(_t_tpfc_input_cmd_rsp, &updated);
+
+		  if (updated) {
+		    tpfc_input_cmd_rsp_s rsp;
+		    orb_copy(ORB_ID(tpfc_input_cmd_rsp), _t_tpfc_input_cmd_rsp, &rsp);
+
+		    // TODO: check and count errors?
+		    if (io_set_tpfc_input_cmd_rsp(&rsp) != OK) {
+		      printf("px4io: cmd rsp failed\n");
+		    }
+		  }
 		}
 
 		if (now >= poll_last + IO_POLL_INTERVAL) {
@@ -979,6 +1075,25 @@ PX4IO::task_main()
 
 			/* fetch PWM outputs from IO */
 			io_publish_pwm_outputs();
+		}
+
+
+		if (now >= ctrl_input_check_last + CTRL_INPUT_CHECK_INTERVAL) {
+
+		  ctrl_input_check_last = now;
+
+		  uint16_t  regs[3];
+		  
+		  int value = io_reg_get(PX4IO_PAGE_CONTROL_INPUT, 0, regs, 3);
+		  
+
+		  if (value == OK) {
+		    _flight_mode = regs[PX4IO_P_CONTROL_INPUT_MODE_SELECT];
+		    _ctrl_cmd = regs[PX4IO_P_CONTROL_INPUT_REQ];
+		  }
+		  else {
+		    // TBD: count error?
+		  }
 		}
 
 		if (now >= orb_check_last + ORB_CHECK_INTERVAL) {
@@ -1121,6 +1236,8 @@ PX4IO::task_main()
 			}
 
 		}
+
+		
 
 		perf_end(_perf_update);
 	}
@@ -1454,6 +1571,63 @@ PX4IO::io_set_rc_config()
 
 	return ret;
 }
+
+
+int
+PX4IO::io_set_tpfc_sensor_data(tpfc_sensors_s* tpfc_data)
+{
+  // We need to tell the serial interface how many uint16_t's we are
+  // sending.  The struct is probably a multiple of sizeof(uint16_t)
+  // but just in case, avoid truncation by rounding up to the next
+  // boundary.
+  //
+  static const unsigned num_registers = (sizeof(tpfc_sensors_s) + sizeof(uint16_t) - 1)/sizeof(uint16_t);
+
+  return io_reg_set(PX4IO_PAGE_EKF, 0, reinterpret_cast<uint16_t*>(tpfc_data), num_registers);
+}
+
+
+int
+PX4IO::io_set_tpfc_autopilot_data(tpfc_autopilot_s* tpfc_data)
+{
+  const uint16_t num_regs = 15;
+  uint16_t regs[num_regs];
+
+  regs[PX4IO_P_CONTROL_OUTPUT_THROTTLE] = tpfc_data->target_throttle;
+  regs[PX4IO_P_CONTROL_OUTPUT_PITCH]    = tpfc_data->target_pitch;
+  regs[PX4IO_P_CONTROL_OUTPUT_ROLL]     = tpfc_data->target_roll;
+  regs[PX4IO_P_CONTROL_OUTPUT_YAW]      = tpfc_data->target_yaw;
+  regs[PX4IO_P_CONTROL_OUTPUT_ARMED]        = tpfc_data->is_armed;
+  regs[PX4IO_P_CONTROL_OUTPUT_FLIGHT_MODE]  = tpfc_data->flight_mode;
+  regs[PX4IO_P_CONTROL_OUTPUT_GPS]          = tpfc_data->gps_state;
+  regs[PX4IO_P_CONTROL_OUTPUT_MAG]          = tpfc_data->mag_state;
+  regs[PX4IO_P_CONTROL_OUTPUT_AHRS]         = tpfc_data->ahrs_state;
+  regs[PX4IO_P_CONTROL_OUTPUT_GYRO]         = tpfc_data->gyro_state;
+  regs[PX4IO_P_CONTROL_OUTPUT_ACCEL]        = tpfc_data->accel_state;
+  regs[PX4IO_P_CONTROL_OUTPUT_HOME_INFO]    = tpfc_data->home_info;
+  regs[PX4IO_P_CONTROL_OUTPUT_TEMPERATURE]  = tpfc_data->temperature;
+  regs[PX4IO_P_CONTROL_OUTPUT_FMU_BOOT_STATE] = 0;
+  regs[PX4IO_P_CONTROL_OUTPUT_FENCE_BREACH]   = tpfc_data->fence_breach;
+
+  return io_reg_set(PX4IO_PAGE_CONTROL_OUTPUT, 0, regs, num_regs);
+}
+
+
+int
+PX4IO::io_set_tpfc_input_cmd_rsp(tpfc_input_cmd_rsp_s* rsp)
+{
+  const uint16_t num_regs = 2;
+  uint16_t regs[num_regs];
+
+  // Clear the command
+  printf("px4io: reply to command %d, code %d\n", _ctrl_cmd, rsp->rsp_code);
+  _ctrl_cmd = PX4IO_P_CONTROL_INPUT_REQ_NONE;
+  regs[PX4IO_P_CONTROL_INPUT_REQ] = PX4IO_P_CONTROL_INPUT_REQ_NONE;
+  regs[PX4IO_P_CONTROL_INPUT_RSP] = rsp->rsp_code;
+  
+  return io_reg_set(PX4IO_PAGE_CONTROL_INPUT, PX4IO_P_CONTROL_INPUT_REQ, regs, num_regs);
+}
+
 
 int
 PX4IO::io_handle_status(uint16_t status)
@@ -1797,10 +1971,11 @@ PX4IO::io_publish_pwm_outputs()
 	/* get mixer status flags from IO */
 	uint16_t mixer_status;
 	ret = io_reg_get(PX4IO_PAGE_STATUS, PX4IO_P_STATUS_MIXER, &mixer_status,sizeof(mixer_status)/sizeof(uint16_t));
-	memcpy(&motor_limits,&mixer_status,sizeof(motor_limits));
 
 	if (ret != OK)
 		return ret;
+
+	memcpy(&motor_limits,&mixer_status,sizeof(motor_limits));
 
 	/* publish mixer status */
 	if(_to_mixer_status == nullptr) {
@@ -2746,6 +2921,227 @@ PX4IO::ioctl(file * filep, int cmd, unsigned long arg)
 		/* clear the 'OVERRIDE OK' bit */
 		ret = io_reg_modify(PX4IO_PAGE_SETUP, PX4IO_P_SETUP_ARMING, PX4IO_P_SETUP_ARMING_MANUAL_OVERRIDE_OK, 0);
 		break;
+
+	case TPFC_IOC_EKF_SET: {
+	  /* The arg for this command is a struct tpfc_sensors_s
+	     pointer.  */
+
+	  ret = io_set_tpfc_sensor_data(reinterpret_cast<tpfc_sensors_s*>(arg));
+	  break;
+	} 
+
+	case TPFC_IOC_SP_SET: {
+
+	  /* The arg for this command is a struct tpfc_autopilot_s
+	     pointer.  */
+
+	  tpfc_autopilot_s* d = reinterpret_cast<tpfc_autopilot_s*>(arg);
+
+	  ret = io_set_tpfc_autopilot_data(d);
+
+	  break;
+	}	
+
+	case TPFC_IOC_MODE_GET: {
+
+	  *(uint32_t*)arg = _flight_mode;
+	  
+	  break;
+	}	
+
+	case TPFC_IOC_INPUT_REQ_GET: {
+
+	  *(uint32_t*)arg = _ctrl_cmd;
+	  
+	  break;
+	}	
+
+	case TPFC_IOC_FC_FW_VERSION_GET: {
+
+	  uint32_t value = io_reg_get(PX4IO_PAGE_CONFIG, PX4IO_P_CONFIG_IO_FIRMWARE_VERSION);
+
+	  *(uint32_t*)arg = value;
+	  
+	  break;
+	}	
+
+	case TPFC_IOC_ESC_FW_VERSION_GET: {
+
+	  uint32_t value = io_reg_get(PX4IO_PAGE_CONFIG, PX4IO_P_CONFIG_ESC_FIRMWARE_VERSION);
+
+	  *(uint32_t*)arg = value;
+
+	  break;
+	}	
+
+	case TPFC_IOC_MAG_OFFSETS_GET: {
+	  int16_t regs[3];
+
+	  // Cheating here....reading 3 offsets starting at Mag X
+	  // which will read X,Y and Z.
+	  //
+	  ret = io_reg_get(PX4IO_PAGE_FMU_BACKUP, PX4IO_P_FMU_BACKUP_MAG_X, (uint16_t*)regs, 3);
+	  TpfcFloatVector* v = (TpfcFloatVector*) arg;
+
+	  if (ret != OK || ((regs[0] == -1) && (regs[1] == -1) && (regs[2] == -1))) {
+	      regs[0] = 0;
+	      regs[1] = 0;
+	      regs[2] = 0;
+	  }
+
+	  v->x = regs[0];
+	  v->y = regs[1];
+	  v->z = regs[2];
+
+	  break;
+	}
+
+	case TPFC_IOC_ACCEL_OFFSETS_GET: {
+	  int16_t regs[3];
+
+	  // Cheating here....reading 3 values starting at X
+	  // which will read X,Y and Z.
+	  //
+	  ret = io_reg_get(PX4IO_PAGE_FMU_BACKUP, PX4IO_P_FMU_BACKUP_ACCOFS_X, (uint16_t*)regs, 3);
+	  TpfcFloatVector* v = (TpfcFloatVector*) arg;
+
+	  if (ret != OK || ((regs[0] == -1) && (regs[1] == -1) && (regs[2] == -1))) {
+	      regs[0] = 0;
+	      regs[1] = 0;
+	      regs[2] = 0;
+	  }
+
+	  v->x = ((float) regs[0])/1000.0f;
+	  v->y = ((float) regs[1])/1000.0f;
+	  v->z = ((float) regs[2])/1000.0f;
+
+	  break;
+	}
+
+	case TPFC_IOC_ACCEL_SCALE_GET: {
+	  int16_t regs[3];
+
+	  // Cheating here....reading 3 values starting at X which
+	  // will read X,Y and Z.
+	  //
+	  ret = io_reg_get(PX4IO_PAGE_FMU_BACKUP, PX4IO_P_FMU_BACKUP_ACCSCAL_X, (uint16_t*)regs, 3);
+	  TpfcFloatVector* v = (TpfcFloatVector*) arg;
+
+	  if (ret != OK || ((regs[0] == -1) && (regs[1] == -1) && (regs[2] == -1))) {
+	    v->x = 1.0f;
+	    v->y = 1.0f;
+	    v->z = 1.0f;
+	  }
+	  else {
+	    v->x = ((float) regs[0])/1000.0f;
+	    v->y = ((float) regs[1])/1000.0f;
+	    v->z = ((float) regs[2])/1000.0f;
+	  }
+
+	  break;
+	}
+
+	case TPFC_IOC_TRIM_OFFSETS_GET: {
+	  int16_t regs[2];
+
+	  // Cheating here....reading 2 offsets starting at trim X
+	  // which will read X and Y.  Z is not used.
+	  //
+	  ret = io_reg_get(PX4IO_PAGE_FMU_BACKUP, PX4IO_P_FMU_BACKUP_TRIM_X, (uint16_t*)regs, 2);
+	  TpfcFloatVector* v = (TpfcFloatVector*) arg;
+
+	  if (ret != OK || ((regs[0] == -1) && (regs[1] == -1))) {
+	      regs[0] = 0;
+	      regs[1] = 0;
+	  }
+
+	  v->x = ((float) regs[0])/1000.0f;
+	  v->y = ((float) regs[1])/1000.0f;
+	  // Z is always 0.
+	  v->z = 0.0f;
+
+	  break;
+	}
+
+	case TPFC_IOC_MAG_OFFSETS_SET: {
+	  int16_t regs[3];
+
+	  // Cheating here....setting 3 offsets starting at Mag X
+	  // which will set X,Y and Z.
+	  //
+	  TpfcFloatVector* v = (TpfcFloatVector*) arg;
+
+	  regs[0] = (int16_t) v->x;
+	  regs[1] = (int16_t) v->y;
+	  regs[2] = (int16_t) v->z;
+
+
+	  ret = io_reg_set(PX4IO_PAGE_FMU_BACKUP, PX4IO_P_FMU_BACKUP_MAG_X, (uint16_t*) regs, 3);
+	  break;
+	}
+
+	case TPFC_IOC_ACCEL_OFFSETS_SET: {
+	  int16_t regs[3];
+
+	  // Cheating here....setting 3 values starting at accel X
+	  // which will set X, Y and Z.
+	  //
+	  TpfcFloatVector* v = (TpfcFloatVector*) arg;
+
+	  regs[0] = (int16_t) (v->x * 1000);
+	  regs[1] = (int16_t) (v->y * 1000);
+	  regs[2] = (int16_t) (v->z * 1000);
+
+	  ret = io_reg_set(PX4IO_PAGE_FMU_BACKUP, PX4IO_P_FMU_BACKUP_ACCOFS_X, (uint16_t*)regs, 3);
+
+	  break;
+	}
+
+	case TPFC_IOC_ACCEL_SCALE_SET: {
+	  int16_t regs[3];
+
+	  // Cheating here....setting 3 values starting at accel X
+	  // which will set X, Y and Z.
+	  //
+	  TpfcFloatVector* v = (TpfcFloatVector*) arg;
+
+	  regs[0] = (int16_t) (v->x * 1000);
+	  regs[1] = (int16_t) (v->y * 1000);
+	  regs[2] = (int16_t) (v->z * 1000);
+
+	  ret = io_reg_set(PX4IO_PAGE_FMU_BACKUP, PX4IO_P_FMU_BACKUP_ACCSCAL_X, (uint16_t*)regs, 3);
+
+	  break;
+	}
+
+	case TPFC_IOC_TRIM_OFFSETS_SET: {
+	  int16_t regs[2];
+
+	  // Cheating here....setting 2 offsets starting at X
+	  // which will set both X and Y. Z is not used.
+	  //
+	  TpfcFloatVector* v = (TpfcFloatVector*) arg;
+
+	  regs[0] = (int16_t) (v->x * 1000);
+	  regs[1] = (int16_t) (v->y * 1000);
+
+	  ret = io_reg_set(PX4IO_PAGE_FMU_BACKUP, PX4IO_P_FMU_BACKUP_TRIM_X, (uint16_t*)regs, 2);
+
+	  break;
+	}
+
+	case TPFC_IOC_FCU_LOG_GET:  {
+
+	  // Caller is passing a uint16_t array of size 16
+	  //
+	  uint16_t* regs = (uint16_t*) arg;
+
+	  ret = io_reg_get(PX4IO_PAGE_FCU_LOG, 0, regs, 16);
+
+	  break;
+	}
+
+
 
 	default:
 		/* see if the parent class can make any use of it */

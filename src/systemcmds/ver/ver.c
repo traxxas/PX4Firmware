@@ -42,10 +42,14 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 #include <version/version.h>
 #include <systemlib/err.h>
 #include <systemlib/mcu_version.h>
 #include <systemlib/git_version.h>
+#include <drivers/drv_tpfc.h>
 
 /* string constants for version commands */
 static const char sz_ver_hw_str[] 	= "hw";
@@ -54,6 +58,9 @@ static const char sz_ver_git_str[] 	= "git";
 static const char sz_ver_bdate_str[] = "bdate";
 static const char sz_ver_gcc_str[] 	= "gcc";
 static const char sz_ver_all_str[] 	= "all";
+static const char sz_ver_trx_str[]	= "trx";
+static const char sz_ver_fc_str[]	= "fc";
+static const char sz_ver_esc_str[]	= "esc";
 static const char mcu_ver_str[]		= "mcu";
 static const char mcu_uid_str[]		= "uid";
 
@@ -63,7 +70,7 @@ static void usage(const char *reason)
 		printf("%s\n", reason);
 	}
 
-	printf("usage: ver {hw|hwcmp|git|bdate|gcc|all|mcu|uid}\n\n");
+	printf("usage: ver {hw|hwcmp|git|bdate|gcc|all|mcu|uid|trx|fc|esc}\n\n");
 }
 
 __EXPORT int ver_main(int argc, char *argv[]);
@@ -72,6 +79,28 @@ int ver_main(int argc, char *argv[])
 {
 	/* defaults to an error */
 	int ret = 1;
+
+	static uint32_t fc_version = 0;
+	static uint32_t esc_version = 0;
+
+	/* First pass, read the flight control and esc versions */
+	if (fc_version == 0 && esc_version == 0) {
+	  
+	  int tpfc_fd = open(PX4IO_DEVICE_PATH, O_WRONLY);
+
+	  if (tpfc_fd > 0) {
+
+	    uint32_t value;
+	    if(ioctl(tpfc_fd, TPFC_IOC_ESC_FW_VERSION_GET, (unsigned long)&value) == 0)  {
+	      esc_version = value & 0x0000ffff;
+	    }
+
+	    if(ioctl(tpfc_fd, TPFC_IOC_FC_FW_VERSION_GET, (unsigned long)&value) == 0)  {
+	      fc_version = value & 0x0000ffff;
+	    }
+	    close(tpfc_fd);
+	  }
+	}
 
 	/* first check if there are at least 2 params */
 	if (argc >= 2) {
@@ -105,6 +134,26 @@ int ver_main(int argc, char *argv[])
 				printf("FW git-hash: %s\n", px4_git_version);
 				ret = 0;
 
+			}
+
+			if (show_all || !strncmp(argv[1], sz_ver_trx_str, sizeof(sz_ver_trx_str))) {
+			  printf("FW trx version: %s\n", trx_version);
+			  ret = 0;
+
+			}
+
+			if (show_all || !strncmp(argv[1], sz_ver_fc_str, sizeof(sz_ver_fc_str))) {
+
+
+			  printf("FC version: %d.%d.%d\n", (fc_version >> 12), ((fc_version & 0x00000f00) >> 8), (fc_version & 0x000000ff));
+			  ret = 0;
+			}
+
+			if (show_all || !strncmp(argv[1], sz_ver_esc_str, sizeof(sz_ver_esc_str))) {
+
+
+			  printf("ESC version: %d.%d\n", (esc_version >> 8), esc_version & 0x000000ff);
+			  ret = 0;
 			}
 
 			if (show_all || !strncmp(argv[1], sz_ver_bdate_str, sizeof(sz_ver_bdate_str))) {
