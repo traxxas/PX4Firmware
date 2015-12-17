@@ -346,31 +346,6 @@ PX4IO_serial::ioctl(unsigned operation, unsigned &arg)
 	return -1;
 }
 
-
-__EXPORT int tpfc_read_calls = 0;  
-__EXPORT int tpfc_read_retries = 0;
-__EXPORT uint8_t tpfc_read_last_clean_page = 0;
-__EXPORT int tpfc_read_good = 0;  
-__EXPORT int tpfc_read_bad = 0;  
-__EXPORT int tpfc_send_calls = 0;  
-__EXPORT int tpfc_send_retries = 0;
-__EXPORT int tpfc_send_with_zeroes = 0;
-__EXPORT uint8_t tpfc_send_last_clean_page = 0;
-__EXPORT int tpfc_send_error_dma = 0;
-__EXPORT int tpfc_send_error_crc = 0;
-__EXPORT int tpfc_send_error_timeout = 0;
-__EXPORT int tpfc_send_error_overruns = 0;
-__EXPORT int tpfc_send_error_noise = 0;
-__EXPORT int tpfc_send_error_framing = 0;
-__EXPORT int tpfc_send_error_bad_idle = 0;
-__EXPORT int tpfc_send_error_waiting_idle = 0;
-__EXPORT uint32_t tpfc_last_dma_sr = 0;
-__EXPORT uint32_t tpfc_last_ok_sr = 0;
-__EXPORT unsigned tpfc_last_rx_status = 0;
-__EXPORT unsigned tpfc_last_ok_rx_status = 0;
-__EXPORT int tpfc_interrupt_count = 0;
-
-
 int
 PX4IO_serial::write(unsigned address, void *data, unsigned count)
 {
@@ -380,25 +355,6 @@ PX4IO_serial::write(unsigned address, void *data, unsigned count)
 
 	if (count > PKT_MAX_REGS)
 		return -EINVAL;
-
-	//	if (page == 57) {
-
-	// if (tpfc_send_calls % 1000 == 0)  {
-	//   pthread_t threadId = pthread_self();
-	//   pid_t pid = getpid();
-	//   printf("px4io_serial write page 0x%02x, pid %d, thread %d\n", page, pid, threadId);
-	// }
-
-
-	tpfc_send_calls++;
-
-	if (page == 57) {
-
-	  // DGS - was using this to time sensor data thru the system,
-	  // should use GPIO if we need this again.
-	}
-
-	if (tpfc_send_error_timeout == 0) tpfc_send_last_clean_page = page;
 
 	sem_wait(&_bus_semaphore);
 
@@ -430,7 +386,6 @@ PX4IO_serial::write(unsigned address, void *data, unsigned count)
 
 			break;
 		}
-		tpfc_send_retries++;
 		perf_count(_pc_retries);
 	}
 
@@ -450,17 +405,6 @@ PX4IO_serial::read(unsigned address, void *data, unsigned count)
 
 	if (count > PKT_MAX_REGS)
 		return -EINVAL;
-
-	// if (tpfc_read_calls % 1000 == 0)  {
-	//   pthread_t threadId = pthread_self();
-	//   pid_t pid = getpid();
-	//   printf("px4io_serial read page 0x%02x, pid %d, thread %d\n", page, pid, threadId);
-	// }
-
-	tpfc_read_calls++;
-
-	
-	if (tpfc_send_error_timeout == 0) tpfc_read_last_clean_page = page;
 
 	sem_wait(&_bus_semaphore);
 
@@ -500,20 +444,13 @@ PX4IO_serial::read(unsigned address, void *data, unsigned count)
 
 			break;
 		}
-		tpfc_read_retries++;
 		perf_count(_pc_retries);
 	}
 
 	sem_post(&_bus_semaphore);
 
-	if (result == OK) {
-	  result = count;
-	  tpfc_read_good++;
-	}
-	else {
-	  tpfc_read_bad++;
-	}
-	
+	if (result == OK)
+		result = count;
 	return result;
 }
 
@@ -596,7 +533,6 @@ PX4IO_serial::_wait_complete()
 			if (_rx_dma_status & DMA_STATUS_TEIF) {
 				perf_count(_pc_dmaerrs);
 				ret = -EIO;
-				tpfc_send_error_dma++;
 				break;
 			}
 
@@ -606,7 +542,6 @@ PX4IO_serial::_wait_complete()
 			if ((crc != crc_packet(&_dma_buffer)) | (PKT_CODE(_dma_buffer) == PKT_CODE_CORRUPT)) {
 				perf_count(_pc_crcerrs);
 				ret = -EIO;
-				tpfc_send_error_crc++;
 				break;
 			}
 
@@ -619,7 +554,6 @@ PX4IO_serial::_wait_complete()
 			_abort_dma();
 			perf_count(_pc_timeouts);
 			perf_cancel(_pc_txns);		/* don't count this as a transaction */
-			tpfc_send_error_timeout++;
 			break;
 		}
 
@@ -673,7 +607,6 @@ PX4IO_serial::_do_rx_dma_callback(unsigned status)
 int
 PX4IO_serial::_interrupt(int irq, void *context)
 {
-	tpfc_interrupt_count++;
 	if (g_interface != nullptr)
 		g_interface->_do_interrupt();
 	return 0;
@@ -685,22 +618,9 @@ PX4IO_serial::_do_interrupt()
 	uint32_t sr = rSR;	/* get UART status register */
 	(void)rDR;		/* read DR to clear status */
 
-	tpfc_last_dma_sr = sr;
-	tpfc_last_rx_status = _rx_dma_status;
-	
-	if (tpfc_send_error_timeout == 0)  {
-	  tpfc_last_ok_sr = sr;
-	  tpfc_last_ok_rx_status = _rx_dma_status;
-	}
-
-	
 	if (sr & (USART_SR_ORE |	/* overrun error - packet was too big for DMA or DMA was too slow */
 		USART_SR_NE |		/* noise error - we have lost a byte due to noise */
 		USART_SR_FE)) {		/* framing error - start/stop bit lost or line break */
-		
-	  if (sr & USART_SR_ORE) tpfc_send_error_overruns++;
-	  if (sr & USART_SR_NE)  tpfc_send_error_noise++;
-	  if (sr & USART_SR_FE)  tpfc_send_error_framing++;
 		
 		/* 
 		 * If we are in the process of listening for something, these are all fatal;
@@ -727,8 +647,6 @@ PX4IO_serial::_do_interrupt()
 		/* if there is DMA reception going on, this is a short packet */
 		if (_rx_dma_status == _dma_status_waiting) {
 
-		  tpfc_send_error_waiting_idle++;
-
 			/* verify that the received packet is complete */
 			size_t length = sizeof(_dma_buffer) - stm32_dmaresidual(_rx_dma);
 			if ((length < 1) || (length < PKT_SIZE(_dma_buffer))) {
@@ -749,9 +667,6 @@ PX4IO_serial::_do_interrupt()
 
 			/* complete the short reception */
 			_do_rx_dma_callback(DMA_STATUS_TCIF);
-		}
-		else {
-		  tpfc_send_error_bad_idle++;
 		}
 	}
 }
