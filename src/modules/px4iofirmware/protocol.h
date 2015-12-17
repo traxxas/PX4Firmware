@@ -336,10 +336,19 @@ enum {							/* DSM bind states */
 #define PX4IO_P_FCU_PARAM_RATE_YAW_P       15   /*!< Proportional term of the Yaw Rate PID (type:float 1 decimal place) */
 #define PX4IO_P_FCU_PARAM_RATE_YAW_I       16   /*!< Integral term of the Yaw Rate PID (type:float 1 decimal place) */
 #define PX4IO_P_FCU_PARAM_RATE_YAW_D       17   /*!< Derivatie term of the Yaw Rate PID (type:float 1 decimal place) */
-#define PX4IO_P_FCU_PARAM_TX_EXPO_ROLL     18   /*!< Transmitter Expo Setting (type: unsigned integer) */
-#define PX4IO_P_FCU_PARAM_TX_EXPO_PITCH    19   /*!< Transmitter Expo Setting (type: unsigned integer) */
-#define PX4IO_P_FCU_PARAM_TX_EXPO_YAW      20   /*!< Transmitter Expo Setting (type: unsigned integer) */
-#define PX4IO_P_FCU_PARAM_TX_BEEP_OVERRIDE 21   /*!< Disable Transmitter Beeps during Altitude Hold/Loiter (type:boolean) */
+#define PX4IO_P_FCU_PARAM_FLIGHT_MODE       18  /*!< Flight mode */
+#define PX4IO_P_FCU_PARAM_EXPO_PITCH_FILM   19  /*!< Expo Pitch Tilt Angle Setting in FILM */
+#define PX4IO_P_FCU_PARAM_EXPO_PITCH_FAST   20  /*!< Expo Pitch Tilt Angle Setting in FAST */
+#define PX4IO_P_FCU_PARAM_EXPO_PITCH_EXPERT 21  /*!< Expo Pitch Rate Setting in EXPERT  */
+#define PX4IO_P_FCU_PARAM_EXPO_YAW_FILM     22  /*!< Expo yaw Rate Angle Setting in FILM */
+#define PX4IO_P_FCU_PARAM_EXPO_YAW_FAST     23  /*!< Expo yaw Rate Angle Setting in FAST */
+#define PX4IO_P_FCU_PARAM_EXPO_YAW_EXPERT   24  /*!< Expo yaw Rate Setting in EXPERT  */
+#define PX4IO_P_FCU_PARAM_LEFT_AUX          25  /*!< Transmitter Left AUX Setting */
+#define PX4IO_P_FCU_PARAM_BEEP_OVERRIDE     26  /*!< Disable Transmitter Beeps during Altitude Hold/Loiter */
+#define PX4IO_P_FCU_PARAM_LIGHTING_MODE     27  /*!< Current Lighting Modes */
+#define PX4IO_P_FCU_PARAM_STATUS_LED        28  /*!< Status of the Power, GPS, Home, and Info LEDs */
+#define PX4IO_P_FCU_PARAM_CALIB_VALUE_START 29  /*!< Starting Register: FCU Calibration Value Storage */
+#define PX4IO_P_FCU_PARAM_CALIB_VALUE_END   31  /*!< Ending Register: FCU Calibration Value Storage */
 
 
 /* FMU backup page and values */

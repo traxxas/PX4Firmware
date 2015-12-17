@@ -3142,6 +3142,31 @@ PX4IO::ioctl(file * filep, int cmd, unsigned long arg)
 	}
 
 
+	case TPFC_IOC_FCU_PARAM_SET: {
+
+	  // Cheating here....setting param with X Y
+	  // which will set X,Y and Z.
+	  //
+	  TpfcFloatVector* v = (TpfcFloatVector*) arg;
+
+	  ret = io_reg_set(PX4IO_PAGE_FCU_PARAM, (uint8_t) v->x, (uint16_t) v->y);
+	  break;
+	  }
+
+	case TPFC_IOC_FCU_PARAM_GET: {
+	  ret = io_reg_get(PX4IO_PAGE_FCU_PARAM, (uint8_t) arg);
+	  break;
+	}
+
+	case TPFC_IOC_FCU_BATTERY: {
+	  ret = io_reg_get(PX4IO_PAGE_STATUS, PX4IO_P_STATUS_VBATT);
+	  break;
+	}
+
+	case TPFC_IOC_FCU_STATUS_LED: {
+	  ret = io_reg_get(PX4IO_PAGE_FCU_PARAM, PX4IO_P_FCU_PARAM_STATUS_LED);
+	  break;
+	}
 
 	default:
 		/* see if the parent class can make any use of it */
