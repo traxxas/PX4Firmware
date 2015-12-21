@@ -58,7 +58,7 @@ static const char sz_ver_git_str[] 	= "git";
 static const char sz_ver_bdate_str[] = "bdate";
 static const char sz_ver_gcc_str[] 	= "gcc";
 static const char sz_ver_all_str[] 	= "all";
-static const char sz_ver_trx_str[]	= "trx";
+static const char sz_ver_flt_str[]	= "flt";
 static const char sz_ver_fc_str[]	= "fc";
 static const char sz_ver_esc_str[]	= "esc";
 static const char mcu_ver_str[]		= "mcu";
@@ -70,7 +70,7 @@ static void usage(const char *reason)
 		printf("%s\n", reason);
 	}
 
-	printf("usage: ver {hw|hwcmp|git|bdate|gcc|all|mcu|uid|trx|fc|esc}\n\n");
+	printf("usage: ver {hw|hwcmp|git|bdate|gcc|all|mcu|uid|flt|fc|esc}\n\n");
 }
 
 __EXPORT int ver_main(int argc, char *argv[]);
@@ -136,8 +136,8 @@ int ver_main(int argc, char *argv[])
 
 			}
 
-			if (show_all || !strncmp(argv[1], sz_ver_trx_str, sizeof(sz_ver_trx_str))) {
-			  printf("FW trx version: %s\n", trx_version);
+			if (show_all || !strncmp(argv[1], sz_ver_flt_str, sizeof(sz_ver_flt_str))) {
+			  printf("FW flight version: %s\n", flt_sw_version);
 			  ret = 0;
 
 			}

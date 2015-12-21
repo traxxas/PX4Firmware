@@ -66,32 +66,7 @@ extern uint32_t tpfc_rtl_brake_velocity_cms;
 
 extern int tpfc_display_ekf_data;
 extern int tpfc_display_error_data;
-// extern int g_print_serial_msg;
 	    
-extern int tpfc_read_calls;  
-extern int tpfc_read_retries;
-extern uint8_t tpfc_read_last_clean_page;
-extern int tpfc_read_good;  
-extern int tpfc_read_bad;  
-
-extern int tpfc_send_calls;
-extern int tpfc_send_retries;
-extern int tpfc_send_with_zeroes;
-extern uint8_t tpfc_send_last_clean_page;
-extern int tpfc_send_error_dma;
-extern int tpfc_send_error_crc;
-extern int tpfc_send_error_timeout;
-extern int tpfc_send_error_overruns;
-extern int tpfc_send_error_noise;
-extern int tpfc_send_error_framing;
-extern int tpfc_send_error_bad_idle;
-extern int tpfc_send_error_waiting_idle;
-extern uint32_t tpfc_last_dma_sr;
-extern uint32_t tpfc_last_ok_sr;
-extern unsigned tpfc_last_rx_status;
-extern unsigned tpfc_last_ok_rx_status;
-extern int tpfc_interrupt_count;
-
 extern bool tpfc_print_loop_timings;
 
 extern float   tpfc_jerk_ratio;
@@ -127,18 +102,6 @@ int tpfc_test_main(int argc, char *argv[])
 	tpfc_print_loop_timings = true;
       }
       else if (strcmp(argv[1], "show") == 0) {
-#if 0
-	printf("calls r:%d, w:%d  retries r:%d  w:%d  lcp r:0x%02x w:0x%02x  reads good:%d bad:%d\n    errors, szd:%d, dma:%d, crc:%d, timeout:%d, ovr:%d, ne:%d, fe:%d, bi:%d wi:%d\n",
-	       tpfc_read_calls, tpfc_send_calls, tpfc_read_retries, tpfc_send_retries, tpfc_read_last_clean_page, tpfc_send_last_clean_page, tpfc_read_good, tpfc_read_bad,
-	       tpfc_send_with_zeroes,
-	       tpfc_send_error_dma, tpfc_send_error_crc, tpfc_send_error_timeout,
-	       tpfc_send_error_overruns, tpfc_send_error_noise, tpfc_send_error_framing, tpfc_send_error_bad_idle, tpfc_send_error_waiting_idle);
-
-
-	printf("  interrupt cnt:%d  last sr:%d  last ok sr:%d  last rx status:%d  last ok status:%d\n",
-	       tpfc_interrupt_count, tpfc_last_dma_sr, tpfc_last_ok_sr, tpfc_last_rx_status, tpfc_last_ok_rx_status);
-#endif
-	//	printf("Z jerk ratio: %2.2f\n", tpfc_jerk_ratio);
 
 	printf("SM erase all: %d, FRAM restores: %d\n",
 	       (*(uint32_t *) STM32_BKP_DR9),
