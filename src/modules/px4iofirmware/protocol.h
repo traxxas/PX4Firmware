@@ -344,11 +344,12 @@ enum {							/* DSM bind states */
 #define PX4IO_P_FCU_PARAM_EXPO_YAW_FAST     23  /*!< Expo yaw Rate Angle Setting in FAST */
 #define PX4IO_P_FCU_PARAM_EXPO_YAW_EXPERT   24  /*!< Expo yaw Rate Setting in EXPERT  */
 #define PX4IO_P_FCU_PARAM_LEFT_AUX          25  /*!< Transmitter Left AUX Setting */
-#define PX4IO_P_FCU_PARAM_BEEP_OVERRIDE     26  /*!< Disable Transmitter Beeps during Altitude Hold/Loiter */
+#define PX4IO_P_FCU_PARAM_AUDIBLE_WARNING   26  /*!< Play Transmitter Beeps during Altitude Hold/Loiter */
 #define PX4IO_P_FCU_PARAM_LIGHTING_MODE     27  /*!< Current Lighting Modes */
 #define PX4IO_P_FCU_PARAM_STATUS_LED        28  /*!< Status of the Power, GPS, Home, and Info LEDs */
 #define PX4IO_P_FCU_PARAM_CALIB_VALUE_START 29  /*!< Starting Register: FCU Calibration Value Storage */
 #define PX4IO_P_FCU_PARAM_CALIB_VALUE_END   31  /*!< Ending Register: FCU Calibration Value Storage */
+#define PX4IO_P_FCU_PARAM_LAST              31  /*!< Not an actual register; marks last register in the page for erase operation */
 
 
 /* FMU backup page and values */

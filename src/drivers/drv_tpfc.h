@@ -70,14 +70,20 @@
 #define TPFC_IOC_FCU_LOG_GET 		_TPFC_IOC(14)
 #define TPFC_IOC_FCU_PARAM_SET		_TPFC_IOC(15)
 #define TPFC_IOC_FCU_PARAM_GET		_TPFC_IOC(16)
-#define TPFC_IOC_FCU_BATTERY            _TPFC_IOC(17)
-#define TPFC_IOC_FCU_STATUS_LED         _TPFC_IOC(18)
+#define TPFC_IOC_FCU_BATTERY_GET        _TPFC_IOC(17)
+#define TPFC_IOC_FCU_STATUS_LED_GET     _TPFC_IOC(18)
+#define TPFC_IOC_FCU_PARAM_RESET_ALL    _TPFC_IOC(19)
 
 typedef struct {
   float x;
   float y;
   float z;
 } TpfcFloatVector;
+
+typedef struct {
+  uint8_t  id;
+  int16_t  value;
+} TpfcFcuParam;
 
 
 //#ifdef CONFIG_ARCH_BOARD_PX4FMU_V2

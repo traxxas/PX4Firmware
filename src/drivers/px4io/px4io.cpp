@@ -3144,12 +3144,9 @@ PX4IO::ioctl(file * filep, int cmd, unsigned long arg)
 
 	case TPFC_IOC_FCU_PARAM_SET: {
 
-	  // Cheating here....setting param with X Y
-	  // which will set X,Y and Z.
-	  //
-	  TpfcFloatVector* v = (TpfcFloatVector*) arg;
+	  TpfcFcuParam* v = (TpfcFcuParam*) arg;
 
-	  ret = io_reg_set(PX4IO_PAGE_FCU_PARAM, (uint8_t) v->x, (uint16_t) v->y);
+	  ret = io_reg_set(PX4IO_PAGE_FCU_PARAM, v->id, v->value);
 	  break;
 	  }
 
@@ -3158,16 +3155,29 @@ PX4IO::ioctl(file * filep, int cmd, unsigned long arg)
 	  break;
 	}
 
-	case TPFC_IOC_FCU_BATTERY: {
+	case TPFC_IOC_FCU_BATTERY_GET: {
 	  ret = io_reg_get(PX4IO_PAGE_STATUS, PX4IO_P_STATUS_VBATT);
 	  break;
 	}
 
-	case TPFC_IOC_FCU_STATUS_LED: {
+	case TPFC_IOC_FCU_STATUS_LED_GET: {
 	  ret = io_reg_get(PX4IO_PAGE_FCU_PARAM, PX4IO_P_FCU_PARAM_STATUS_LED);
 	  break;
 	}
 
+	case TPFC_IOC_FCU_PARAM_RESET_ALL: {
+	  int16_t regs[PX4IO_P_FCU_PARAM_LAST];
+
+	  memset(regs, 0, sizeof(regs));
+
+	  // Transmitter beeps on by default
+	  //
+	  regs[PX4IO_P_FCU_PARAM_AUDIBLE_WARNING] = 1;
+
+	  ret = io_reg_set(PX4IO_PAGE_FCU_PARAM, 0, (uint16_t*)regs, PX4IO_P_FCU_PARAM_LAST);
+	  break;
+	}
+	  
 	default:
 		/* see if the parent class can make any use of it */
 		ret = CDev::ioctl(filep, cmd, arg);
