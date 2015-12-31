@@ -3170,9 +3170,10 @@ PX4IO::ioctl(file * filep, int cmd, unsigned long arg)
 
 	  memset(regs, 0, sizeof(regs));
 
-	  // Transmitter beeps on by default
+	  // Transmitter beeps and lights ON by default
 	  //
 	  regs[PX4IO_P_FCU_PARAM_AUDIBLE_WARNING] = 1;
+	  regs[PX4IO_P_FCU_PARAM_LIGHTING_MODE]   = 1;
 
 	  ret = io_reg_set(PX4IO_PAGE_FCU_PARAM, 0, (uint16_t*)regs, PX4IO_P_FCU_PARAM_LAST);
 	  break;
