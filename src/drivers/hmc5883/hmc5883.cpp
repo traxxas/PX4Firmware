@@ -873,6 +873,8 @@ HMC5883::collect()
 	/* this should be fairly close to the end of the measurement, so the best approximation of the time */
 	new_report.timestamp = hrt_absolute_time();
         new_report.error_count = perf_event_count(_comms_errors);
+	new_report.range_ga = 0;
+	new_report.scaling = 0;
 
 	/*
 	 * @note  We could read the status register here, which could tell us that
@@ -1037,6 +1039,12 @@ int HMC5883::calibrate(struct file *filp, unsigned enable)
 	int ret = 1;
 	uint8_t good_count = 0;
 
+	// Range values for self-test with gain = 3, computed using
+	// formula from datasheet.
+	//
+	const int16_t MAX_EXCITE_READING = 973; 
+	const int16_t MIN_EXCITE_READING = 411;
+
 	// XXX do something smarter here
 	int fd = (int)enable;
 
@@ -1058,14 +1066,22 @@ int HMC5883::calibrate(struct file *filp, unsigned enable)
 		1.0f,
 	};
 
-	float sum_excited[3] = {0.0f, 0.0f, 0.0f};
 
 	/* expected axis scaling. The datasheet says that 766 will
 	 * be places in the X and Y axes and 713 in the Z
 	 * axis. Experiments show that in fact 766 is placed in X,
 	 * and 713 in Y and Z. This is relative to a base of 660
 	 * LSM/Ga, giving 1.16 and 1.08 */
-	float expected_cal[3] = { 1.16f, 1.08f, 1.08f };
+
+	// Assuming above comment is correct.  The rotated sensor
+	// values are used by the calibration code so the expected_cal
+	// vector below is rotated to match (Y,X,Z) (note this makes
+	// it board specific).
+	//
+	int16_t expected_cal[3] = { 713, 766, 713 };
+	
+	int32_t avg_positive_excited[3] = {0, 0, 0};
+	int32_t avg_negative_excited[3] = {0, 0, 0};
 
 	/* start the sensor polling at 50 Hz */
 	if (OK != ioctl(filp, SENSORIOCSPOLLRATE, 50)) {
@@ -1082,12 +1098,6 @@ int HMC5883::calibrate(struct file *filp, unsigned enable)
 		goto out;
 	}
 
-	if (OK != ioctl(filp, MAGIOCEXSTRAP, 1)) {
-		warnx("FAILED: MAGIOCEXSTRAP 1");
-		ret = 1;
-		goto out;
-	}
-
 	if (OK != ioctl(filp, MAGIOCGSCALE, (long unsigned int)&mscale_previous)) {
 		warn("FAILED: MAGIOCGSCALE 1");
 		ret = 1;
@@ -1100,13 +1110,21 @@ int HMC5883::calibrate(struct file *filp, unsigned enable)
 		goto out;
 	}
 
+	/* Postivie bias */
+	if (OK != ioctl(filp, MAGIOCEXSTRAP, 1)) {
+		warnx("FAILED: MAGIOCEXSTRAP 1");
+		ret = 1;
+		goto out;
+	}
+
+	struct pollfd fds;
+	fds.fd = fd;
+	fds.events = POLLIN;
+
 	// discard 10 samples to let the sensor settle
 	for (uint8_t i = 0; i < 10; i++) {
-		struct pollfd fds;
 
 		/* wait for data to be ready */
-		fds.fd = fd;
-		fds.events = POLLIN;
 		ret = ::poll(&fds, 1, 2000);
 
 		if (ret != 1) {
@@ -1124,13 +1142,10 @@ int HMC5883::calibrate(struct file *filp, unsigned enable)
 		}
 	}
 
-	/* read the sensor up to 50x, stopping when we have 10 good values */
-	for (uint8_t i = 0; i < 50 && good_count < 10; i++) {
-		struct pollfd fds;
+	/* read the sensor up to 75x, stopping when we have 15 good values */
+	for (uint8_t i = 0; i < 75 && good_count < 15; i++) {
 
-		/* wait for data to be ready */
-		fds.fd = fd;
-		fds.events = POLLIN;
+	  /* wait for data to be ready */
 		ret = ::poll(&fds, 1, 2000);
 
 		if (ret != 1) {
@@ -1146,17 +1161,22 @@ int HMC5883::calibrate(struct file *filp, unsigned enable)
 			ret = -EIO;
 			goto out;
 		}
-		float cal[3] = {fabsf(expected_cal[0] / report.x),
-				fabsf(expected_cal[1] / report.y),
-				fabsf(expected_cal[2] / report.z)};
 
-		if (cal[0] > 0.7f && cal[0] < 1.35f &&
-		    cal[1] > 0.7f && cal[1] < 1.35f &&
-		    cal[2] > 0.7f && cal[2] < 1.35f) {
+		
+		/* printf("positive calibration sample: (%3.2f, %3.2f, %3.2f), raw: (%d, %d, %d), rng: %3.2f, scl: %3.2f\n",
+		       report.x, report.y, report.z,
+		       report.x_raw, report.y_raw, report.z_raw,
+		       report.range_ga, report.scaling);
+		*/
+		
+		       
+		if (abs(report.x_raw) < MAX_EXCITE_READING && abs(report.x_raw) > MIN_EXCITE_READING &&
+		    abs(report.y_raw) < MAX_EXCITE_READING && abs(report.y_raw) > MIN_EXCITE_READING &&
+		    abs(report.z_raw) < MAX_EXCITE_READING && abs(report.z_raw) > MIN_EXCITE_READING) {
 			good_count++;
-			sum_excited[0] += cal[0];
-			sum_excited[1] += cal[1];
-			sum_excited[2] += cal[2];
+			avg_positive_excited[0] += report.x_raw;
+			avg_positive_excited[1] += report.y_raw;
+			avg_positive_excited[2] += report.z_raw;
 		}
 	}
 
@@ -1165,30 +1185,159 @@ int HMC5883::calibrate(struct file *filp, unsigned enable)
 		goto out;
 	}
 
-	float scaling[3];
+	avg_positive_excited[0] /= good_count;
+	avg_positive_excited[1] /= good_count;
+	avg_positive_excited[2] /= good_count;
+	
 
-	scaling[0] = sum_excited[0] / good_count;
-	scaling[1] = sum_excited[1] / good_count;
-	scaling[2] = sum_excited[2] / good_count;
+	/* repeat for negative bias */
 
-	/* set scaling in device */
-	mscale_previous.x_scale = scaling[0];
-	mscale_previous.y_scale = scaling[1];
-	mscale_previous.z_scale = scaling[2];
+	if (OK != ioctl(filp, MAGIOCEXSTRAP, -1)) {
+		warnx("FAILED: MAGIOCEXSTRAP -1");
+		ret = 1;
+		goto out;
+	}
+
+	/* Read a few samples and discard them. */
+	for (uint8_t i = 0; i < 5; i++) {
+
+		ret = ::poll(&fds, 1, 2000);
+
+		if (ret != 1) {
+			warn("ERROR: TIMEOUT 2");
+			goto out;
+		}
+
+		/* now go get it */
+		sz = ::read(fd, &report, sizeof(report));
+
+		if (sz != sizeof(report)) {
+			warn("ERROR: READ 2");
+			ret = -EIO;
+			goto out;
+		}
+	}
+	
+	good_count = 0;
+
+	/* read the sensor up to 75x, stopping when we have 15 good values */
+	for (uint8_t i = 0; i < 75 && good_count < 15; i++) {
+
+		/* wait for data to be ready */
+		ret = ::poll(&fds, 1, 2000);
+
+		if (ret != 1) {
+			warn("ERROR: TIMEOUT 2");
+			goto out;
+		}
+
+		/* now go get it */
+		sz = ::read(fd, &report, sizeof(report));
+
+		if (sz != sizeof(report)) {
+			warn("ERROR: READ 2");
+			ret = -EIO;
+			goto out;
+		}
+
+	
+		/* printf("negative calibration sample: (%3.2f, %3.2f, %3.2f), raw: (%d, %d, %d), rng: %3.2f, scl: %3.2f\n",
+		       report.x, report.y, report.z,
+		       report.x_raw, report.y_raw, report.z_raw,
+		       report.range_ga, report.scaling);
+		*/
+		
+		       
+		if (abs(report.x_raw) < MAX_EXCITE_READING && abs(report.x_raw) > MIN_EXCITE_READING &&
+		    abs(report.y_raw) < MAX_EXCITE_READING && abs(report.y_raw) > MIN_EXCITE_READING &&
+		    abs(report.z_raw) < MAX_EXCITE_READING && abs(report.z_raw) > MIN_EXCITE_READING) {
+			good_count++;
+			avg_negative_excited[0] += report.x_raw;
+			avg_negative_excited[1] += report.y_raw;
+			avg_negative_excited[2] += report.z_raw;
+		}
+	}
+
+	if (good_count < 5) {
+		ret = -EIO;
+		goto out;
+	}
+
+	avg_negative_excited[0] /= good_count;
+	avg_negative_excited[1] /= good_count;
+	avg_negative_excited[2] /= good_count;
+
+	
+	/* Compute the scale as the expected value divided by the
+	   average of magnitude of both positive and negative */
+
+	mscale_previous.x_scale = 2.0f*expected_cal[0]/abs(avg_positive_excited[0]-avg_negative_excited[0]);
+	mscale_previous.y_scale = 2.0f*expected_cal[1]/abs(avg_positive_excited[1]-avg_negative_excited[1]);
+	mscale_previous.z_scale = 2.0f*expected_cal[2]/abs(avg_positive_excited[2]-avg_negative_excited[2]);
+
+	/* Not computing offsets.  The applicaton calibration will correct the offsets.
+	
+	mscale_previous.x_offset = (avg_positive_excited[0]+avg_negative_excited[0])/(2.0f*expected_cal[0]);
+	mscale_previous.y_offset = -(avg_positive_excited[1]+avg_negative_excited[1])/(2.0f*expected_cal[1]);
+	mscale_previous.z_offset = (avg_positive_excited[2]+avg_negative_excited[2])/(2.0f*expected_cal[2]);
+	*/
+	
+	/* 	printf("Computed scale: (%2.3f, %2.3f, %2.3f), offsets: (%3.3f, %3.3f, %3.3f)\n",
+	       mscale_previous.x_scale, mscale_previous.y_scale, mscale_previous.z_scale,
+	       mscale_previous.x_offset, mscale_previous.y_offset, mscale_previous.z_offset);
+	*/
 
 	ret = OK;
 
 out:
 
+	/* Install the new scale */
 	if (OK != ioctl(filp, MAGIOCSSCALE, (long unsigned int)&mscale_previous)) {
 		warn("FAILED: MAGIOCSSCALE 2");
 	}
 
+	
+
+#if 0
+	/* If we succeeded in computing a new scale, perform a few
+	   reads and print the result. */
+	if (ret == OK) {
+	  for (uint8_t j = 0; j < 2; j++) {
+	    for (uint8_t i = 0; i < 5; i++) {
+
+	      if (::poll(&fds, 1, 2000) != 1) {
+		warn("ERROR: TIMEOUT 2");
+		break;
+	      }
+
+	      /* now go get it */
+	      sz = ::read(fd, &report, sizeof(report));
+
+	      if (sz != sizeof(report)) {
+		warn("ERROR: READ 2");
+		break;
+	      }
+
+	
+	      printf("%s post calibration: (%3.2f, %3.2f, %3.2f), raw: (%d, %d, %d), rng: %3.2f, scl: %3.2f\n",
+		     (j==0?"Neg":"Pos"),
+		     report.x, report.y, report.z,
+		     report.x_raw, report.y_raw, report.z_raw,
+		     report.range_ga, report.scaling);
+	    }
+
+	    /* flip to positive for second pass*/
+	    ioctl(filp, MAGIOCEXSTRAP, 1);
+	  }
+	}
+#endif
+	
 	/* set back to normal mode */
 	/* Set to 1.1 Gauss */
 	if (OK != ::ioctl(fd, MAGIOCSRANGE, 1)) {
-		warnx("FAILED: MAGIOCSRANGE 1.1 Ga");
+	  warnx("FAILED: MAGIOCSRANGE 1.1 Ga");
 	}
+	
 
 	if (OK != ::ioctl(fd, MAGIOCEXSTRAP, 0)) {
 		warnx("FAILED: MAGIOCEXSTRAP 0");
@@ -1385,6 +1534,7 @@ HMC5883::print_info()
 	       (double)_scale.x_scale, (double)_scale.y_scale, (double)_scale.z_scale,
 	       (double)(1.0f/_range_scale), (double)_range_ga);
 	printf("temperature %.2f\n", (double)_last_report.temperature);
+	printf("config register: %x %d\n", _conf_reg, _conf_reg);
 	_reports->print_info("report queue");
 }
 
