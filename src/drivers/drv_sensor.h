@@ -67,6 +67,7 @@
 #define DRV_GYR_DEVTYPE_MPU9250  0x24
 #define DRV_RNG_DEVTYPE_MB12XX   0x31
 #define DRV_RNG_DEVTYPE_LL40LS   0x32
+#define DRV_MAG_DEVTYPE_MMC5883  0x33
 
 /*
  * ioctl() definitions

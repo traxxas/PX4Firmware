@@ -146,6 +146,9 @@ __BEGIN_DECLS
 #define PX4_I2C_OBDEV_LED	0x55
 #define PX4_I2C_OBDEV_HMC5883	0x1e
 
+#define PX4_I2C_OBDEV_MMC5883	0x30
+
+
 /* User GPIOs
  *
  * GPIO0-5 are the PWM servo outputs.
